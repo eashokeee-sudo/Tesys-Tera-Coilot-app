@@ -8,7 +8,8 @@ import java.io.File
 /**
  * Holds the editable parameter catalog.
  * First launch: copies assets/default_catalog.json to internal storage.
- * After that the user's file is the source of truth, so app updates never overwrite your edits.
+ * When the shipped catalog version is newer, the new defaults are installed and the parameters you
+ * created yourself (ids starting with "u") are kept.
  */
 class CatalogStore(private val ctx: Context) {
     private val file = File(ctx.filesDir, "catalog.json")
@@ -21,11 +22,24 @@ class CatalogStore(private val ctx: Context) {
         ctx.assets.open("default_catalog.json").bufferedReader().use { it.readText() }
 
     private fun load() {
+        val def = defaultText()
         val list = try {
-            if (!file.exists()) file.writeText(defaultText())
-            CatalogJson.parse(file.readText())
+            if (!file.exists()) {
+                file.writeText(def)
+                CatalogJson.parse(def)
+            } else {
+                val txt = file.readText()
+                if (CatalogJson.version(txt) < CatalogJson.version(def)) {
+                    val defaults = CatalogJson.parse(def)
+                    val ids = defaults.map { it.id }.toSet()
+                    val mine = CatalogJson.parse(txt).filter { it.id.startsWith("u") && it.id !in ids }
+                    val merged = defaults + mine
+                    file.writeText(CatalogJson.toJson(merged))
+                    merged
+                } else CatalogJson.parse(txt)
+            }
         } catch (e: Exception) {
-            CatalogJson.parse(defaultText())
+            CatalogJson.parse(def)
         }
         _params.value = list
     }
@@ -36,7 +50,10 @@ class CatalogStore(private val ctx: Context) {
     fun upsert(p: ParamDef, originalId: String?) {
         val cur = _params.value.toMutableList()
         val idx = cur.indexOfFirst { it.id == (originalId ?: p.id) }
-        if (idx >= 0) cur[idx] = p else cur.add(p)
+        val old = cur.getOrNull(idx)
+        // the editor does not know the special display fields: keep them when editing a shipped parameter
+        val np = if (old != null && p.fmt.isEmpty() && p.length == 0) p.copy(fmt = old.fmt, length = old.length) else p
+        if (idx >= 0) cur[idx] = np else cur.add(np)
         _params.value = cur
         persist()
     }

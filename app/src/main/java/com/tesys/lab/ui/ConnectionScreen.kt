@@ -118,6 +118,6 @@ fun ConnectionScreen(vm: MainViewModel) {
 
         (pingText ?: msg)?.let { Text(it, fontFamily = Mono, fontSize = 12.sp, color = C.Amber) }
 
-        Text("This app is read-only: it cannot write registers, start/stop the motor or change protection settings.", fontSize = 11.sp, color = C.Dim)
+        Text("Commands and protection changes stay locked until you unlock write access on the Control tab.", fontSize = 11.sp, color = C.Dim)
     }
 }

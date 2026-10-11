@@ -4,7 +4,7 @@ import java.math.BigDecimal
 
 /** Data types a parameter can have. [words] = number of 16-bit registers it occupies. */
 enum class DType(val words: Int, val isBitmap: Boolean = false, val isBit: Boolean = false) {
-    UINT16(1), INT16(1), UINT32(2), INT32(2),
+    UINT16(1), INT16(1), UINT32(2), INT32(2), UINT64(4),
     BITMAP16(1, isBitmap = true), BITMAP32(2, isBitmap = true),
     /** Single bit read with FC01/FC02 (coils / discrete inputs). */
     BOOL(1, isBit = true)
@@ -16,11 +16,16 @@ enum class BitStyle { STATE, ENABLE, ALARM, TRIP }
 data class BitDef(val bit: Int, val name: String)
 
 /**
- * One monitored parameter. The whole app is driven by a list of these (catalog.json),
+ * One monitored parameter. The screens are driven by a list of these (catalog.json),
  * so adding / deleting / editing a parameter never needs a code change.
  *
  * [register] uses the numbering printed in the Schneider guides (Register = Address + 1).
  * The address sent on the wire is [address] = register - 1.
+ *
+ * [fmt] = optional special display format: ASCII (text, [length] registers), FWVER (aaa.bbb.ccc),
+ * HWVER (letter) or HMIN (minutes shown as h:mm).
+ * role PROT_FUNC marks a protection "Function setting" register (0 Disable / 1 Alarm / 2 Trip / 3 Alarm+Trip)
+ * that the Protection screen may enable / disable when write access is unlocked.
  */
 data class ParamDef(
     val id: String,
@@ -33,7 +38,7 @@ data class ParamDef(
     val decimals: Int = -1,             // -1 = derive from scale
     val screen: String = "registers",   // motor | electrical | protection | registers
     val group: String = "",             // card title on the screen
-    val role: String = "",              // IAVG | FLC | THERMAL | MOTOR_STATE | ""
+    val role: String = "",              // IAVG | FLC | THERMAL | MOTOR_STATE | PROT_FUNC | ""
     val tile: Boolean = false,          // draw as big tile (3 per row)
     val bitStyle: BitStyle = BitStyle.STATE,
     val enumMap: Map<Long, String> = emptyMap(),
@@ -42,10 +47,12 @@ data class ParamDef(
     val enabled: Boolean = true,
     val verified: Boolean = false,      // tick once confirmed against DTM / HMI / guide
     val source: String = "",
-    val notes: String = ""
+    val notes: String = "",
+    val fmt: String = "",
+    val length: Int = 0
 ) {
     val address: Int get() = register - 1
-    val span: Int get() = if (type.isBit) 1 else type.words
+    val span: Int get() = if (type.isBit) 1 else if (fmt == "ASCII" && length > 0) length else type.words
     val isBitFunction: Boolean get() = function == 1 || function == 2
 
     fun decimalPlaces(): Int =
@@ -54,7 +61,7 @@ data class ParamDef(
 
     companion object {
         val SCREENS = listOf("motor", "electrical", "protection", "registers")
-        val ROLES = listOf("", "IAVG", "FLC", "THERMAL", "MOTOR_STATE")
+        val ROLES = listOf("", "IAVG", "FLC", "THERMAL", "MOTOR_STATE", "PROT_FUNC")
         val FUNCTIONS = listOf(3, 4, 2, 1)
     }
 }

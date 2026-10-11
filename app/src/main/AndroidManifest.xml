@@ -7,7 +7,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="TeSys Tera Lab"
+        android:label="TeSys Tera Connect"
         android:theme="@style/Theme.TeSysLab">
         <activity
             android:name=".MainActivity"

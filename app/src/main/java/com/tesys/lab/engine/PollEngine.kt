@@ -17,8 +17,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Polls whatever the catalog currently says, every cycle. The catalog is re-read at the start of
- * each cycle, so added / removed / edited parameters take effect immediately without reconnecting.
+ * Polls whatever [params] returns, every cycle. The list is re-read at the start of each cycle, so added /
+ * removed / edited parameters and tab changes take effect immediately without reconnecting.
+ * A parameter the device refuses (Modbus exception) is retried only every [RETRY_CYCLES] cycles.
  */
 class PollEngine(private val scope: CoroutineScope) {
     private val _readings = MutableStateFlow<Map<String, Reading>>(emptyMap())
@@ -28,9 +29,13 @@ class PollEngine(private val scope: CoroutineScope) {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError
     private var job: Job? = null
+    @Volatile private var fullNext = false
 
     fun setState(s: ConnState) { _state.value = s }
     fun clearReadings() { _readings.value = emptyMap() }
+
+    /** Next cycle reads every parameter once, ignoring the per-parameter "poll every N" setting. */
+    fun requestFull() { fullNext = true }
 
     fun start(
         client: ModbusClient,
@@ -43,12 +48,20 @@ class PollEngine(private val scope: CoroutineScope) {
         stop()
         _state.value = ConnState.CONNECTING
         _lastError.value = null
+        fullNext = true
         job = scope.launch(Dispatchers.IO) {
             var cycle = 0L
             var ioFailures = 0
+            val badUntil = HashMap<String, Long>()
             while (isActive) {
                 val t0 = System.nanoTime()
-                val due = params().filter { it.enabled && cycle % it.everyN.coerceAtLeast(1) == 0L }
+                val full = fullNext
+                if (full) fullNext = false
+                val due = params().filter {
+                    it.enabled &&
+                        (full || cycle % it.everyN.coerceAtLeast(1) == 0L) &&
+                        (full || (badUntil[it.id] ?: 0L) <= cycle)
+                }
                 val updates = HashMap<String, Reading>()
                 var gotResponse = false
                 var ioFailed = false
@@ -57,16 +70,26 @@ class PollEngine(private val scope: CoroutineScope) {
                     try {
                         val data = fetch(client, b.fc, b.start, b.qty)
                         gotResponse = true
-                        for (p in b.params) updates[p.id] = decodeSlice(p, b.start, data, swapWords, swapBytes)
+                        for (p in b.params) {
+                            updates[p.id] = decodeSlice(p, b.start, data, swapWords, swapBytes)
+                            badUntil.remove(p.id)
+                        }
                     } catch (e: ModbusException) {
                         gotResponse = true
                         // One bad parameter must not blank the whole block: retry each one alone.
                         for (p in b.params) {
+                            if (b.params.size == 1) {
+                                updates[p.id] = errReading(e.code)
+                                badUntil[p.id] = cycle + RETRY_CYCLES
+                                continue
+                            }
                             try {
                                 val d = fetch(client, p.function, p.address, p.span)
                                 updates[p.id] = decodeSlice(p, p.address, d, swapWords, swapBytes)
+                                badUntil.remove(p.id)
                             } catch (e2: ModbusException) {
-                                updates[p.id] = Reading(error = "EXC ${e2.code}", text = "EXC ${e2.code}", timeMs = System.currentTimeMillis())
+                                updates[p.id] = errReading(e2.code)
+                                badUntil[p.id] = cycle + RETRY_CYCLES
                             } catch (e2: CancellationException) {
                                 throw e2
                             } catch (e2: Exception) {
@@ -104,6 +127,9 @@ class PollEngine(private val scope: CoroutineScope) {
         job = null
     }
 
+    private fun errReading(code: Int) =
+        Reading(error = "EXC $code", text = "EXC $code", timeMs = System.currentTimeMillis())
+
     private suspend fun fetch(c: ModbusClient, fc: Int, addr: Int, qty: Int): IntArray =
         if (fc == 1 || fc == 2) c.readBits(fc, addr, qty) else c.readWords(fc, addr, qty)
 
@@ -111,4 +137,6 @@ class PollEngine(private val scope: CoroutineScope) {
         val off = p.address - blockStart
         return Decoder.decode(p, data.copyOfRange(off, off + p.span), sw, sb)
     }
+
+    companion object { const val RETRY_CYCLES = 30L }
 }

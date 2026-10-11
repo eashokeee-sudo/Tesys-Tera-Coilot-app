@@ -28,9 +28,14 @@ object Modbus {
         return crc and 0xFFFF
     }
 
-    /** Read request PDU (FC 01/02/03/04). Only read functions exist in this app. */
+    /** Read request PDU (FC 01/02/03/04). */
     fun readPdu(fc: Int, addr: Int, qty: Int): ByteArray = byteArrayOf(
         fc.toByte(), (addr shr 8).toByte(), addr.toByte(), (qty shr 8).toByte(), qty.toByte()
+    )
+
+    /** Write-single-register PDU (FC 06). Only used by the gated Control / Protection screens. */
+    fun writePdu(addr: Int, value: Int): ByteArray = byteArrayOf(
+        6, (addr shr 8).toByte(), addr.toByte(), (value shr 8).toByte(), value.toByte()
     )
 
     /** Registers from an FC03/FC04 response PDU. */

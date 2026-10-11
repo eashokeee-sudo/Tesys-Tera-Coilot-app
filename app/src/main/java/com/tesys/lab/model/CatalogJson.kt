@@ -5,11 +5,15 @@ import org.json.JSONObject
 
 /** JSON (de)serialisation of the parameter catalog. Tolerant: unknown / missing fields get defaults. */
 object CatalogJson {
+    /** Bump together with tools/gen_catalog.py when the shipped default catalog changes. */
+    const val VERSION = 2
+
+    fun version(text: String): Int = try { JSONObject(text).optInt("version", 1) } catch (e: Exception) { 1 }
 
     fun toJson(params: List<ParamDef>): String {
         val arr = JSONArray()
         params.forEach { arr.put(toObj(it)) }
-        return JSONObject().put("version", 1).put("params", arr).toString(2)
+        return JSONObject().put("version", VERSION).put("params", arr).toString(2)
     }
 
     fun toObj(p: ParamDef): JSONObject = JSONObject().apply {
@@ -31,6 +35,8 @@ object CatalogJson {
         put("verified", p.verified)
         put("source", p.source)
         put("notes", p.notes)
+        put("fmt", p.fmt)
+        put("length", p.length)
         val e = JSONObject(); p.enumMap.forEach { (k, v) -> e.put(k.toString(), v) }
         put("enum", e)
         val b = JSONArray(); p.bits.forEach { b.put(JSONObject().put("bit", it.bit).put("name", it.name)) }
@@ -76,7 +82,9 @@ object CatalogJson {
                     enabled = o.optBoolean("enabled", true),
                     verified = o.optBoolean("verified", false),
                     source = o.optString("source", ""),
-                    notes = o.optString("notes", "")
+                    notes = o.optString("notes", ""),
+                    fmt = o.optString("fmt", ""),
+                    length = o.optInt("length", 0)
                 )
             )
         }

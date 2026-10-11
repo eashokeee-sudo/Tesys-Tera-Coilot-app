@@ -4,6 +4,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
+import com.hoho.android.usbserial.driver.FtdiSerialDriver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -99,7 +100,7 @@ class UsbRtuTransport(
     private var port: UsbSerialPort? = null
 
     override suspend fun open() = withContext(Dispatchers.IO) {
-        val driver = UsbSerialProber.getDefaultProber().probeDevice(device)
+        val driver = prober().probeDevice(device)
             ?: throw CommError("No serial driver for this USB device", ErrKind.IO)
         val conn = usb.openDevice(device)
             ?: throw CommError("Cannot open USB device (permission denied?)", ErrKind.IO)
@@ -178,4 +179,11 @@ class UsbRtuTransport(
             else -> 5
         }
     }
+}
+
+/** Default prober plus the Schneider TSXCUSB485 cable (VID 0x16DE, PID 0x0003, FTDI-based). */
+private fun prober(): UsbSerialProber {
+    val table = UsbSerialProber.getDefaultProbeTable()
+    table.addProduct(0x16DE, 0x0003, FtdiSerialDriver::class.java)
+    return UsbSerialProber(table)
 }
